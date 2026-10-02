@@ -1,0 +1,142 @@
+#!/usr/bin/bash
+# Omascayl launcher.
+#
+#   omascayl [--standalone] [IMAGE|FOLDER]
+#
+# If the Omascayl plugin is loaded in omarchy-shell, opens its window there
+# (handing it IMAGE/FOLDER). Otherwise runs the app as its own Quickshell
+# process, or hands the path to the one already running. --standalone skips
+# the plugin.
+#
+# Standalone mode imports Omarchy's shell modules (qs.Commons, qs.Ui), so each
+# cold start assembles a small runtime config: symlinks to this checkout's src/
+# files plus Omarchy's Commons and Ui.
+set -euo pipefail
+# Commands come from the system's own folders only, never the inherited PATH.
+PATH=/usr/bin:/usr/share/omarchy/bin
+export PATH
+
+self=$(readlink -f "${BASH_SOURCE[0]}")
+root=$(dirname "$(dirname "$self")")
+src="$root/src"
+version=$(cat "$root/VERSION" 2>/dev/null || echo dev)
+
+die() {
+  printf 'omascayl: %s\n' "$*" >&2
+  if [[ ! -t 2 ]] && command -v notify-send >/dev/null; then
+    notify-send -a Omascayl "Omascayl could not start" "$*" || true
+  fi
+  exit 1
+}
+
+standalone=false
+case "${1:-}" in
+  -h|--help)
+    sed -n '2,13p' "$self" | sed 's/^# \{0,1\}//'
+    exit 0 ;;
+  -V|--version)
+    echo "omascayl $version"
+    exit 0 ;;
+  --standalone)
+    standalone=true
+    shift ;;
+esac
+
+target=""
+if [[ $# -gt 0 ]]; then
+  target=$1
+  [[ $target == file://* ]] || target=$(realpath -s -- "$target")
+fi
+
+# Both modes title the window "Omascayl"; in plugin mode its class is the
+# shell's, so match the title.
+focus_window() {
+  command -v hyprctl >/dev/null && command -v jq >/dev/null || return 0
+  local address
+  address=$(hyprctl clients -j 2>/dev/null | jq -r '.[] | select(.title == "Omascayl") | .address' 2>/dev/null | head -n1) || true
+  [[ -n $address ]] || return 0
+  hyprctl dispatch "hl.dsp.focus({ window = \"address:$address\" })" >/dev/null 2>&1 \
+    || hyprctl dispatch focuswindow "address:$address" >/dev/null 2>&1 || true
+}
+
+# ---- plugin mode ------------------------------------------------------------------
+if ! $standalone && command -v omarchy-shell >/dev/null \
+    && omarchy-shell omascayl status >/dev/null 2>&1; then
+  if [[ -n $target ]]; then
+    omarchy-shell omascayl open "$target" >/dev/null
+  else
+    omarchy-shell omascayl show >/dev/null
+  fi
+  focus_window
+  exit 0
+fi
+
+# ---- standalone mode ----------------------------------------------------------------
+qs=$(command -v qs || command -v quickshell || true)
+[[ -n $qs ]] || die "Quickshell (qs) is not installed."
+
+omarchy=""
+for candidate in "${OMARCHY_PATH:-}" "$HOME/.local/share/omarchy" /usr/share/omarchy; do
+  if [[ -n $candidate && -f $candidate/shell/Commons/qmldir && -f $candidate/shell/Ui/qmldir ]]; then
+    omarchy=$candidate
+    break
+  fi
+done
+[[ -n $omarchy ]] || die "Omarchy's shell modules were not found (looked for shell/Commons and shell/Ui under \$OMARCHY_PATH, ~/.local/share/omarchy and /usr/share/omarchy)."
+
+# The runtime config lives in XDG_RUNTIME_DIR when that is a private folder of
+# the user's, otherwise in the cache folder; never at a guessable /tmp path.
+# It is rebuilt with rm -rf below, so it must not be reached through a symlink.
+cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/omascayl"
+runtime_base=${XDG_RUNTIME_DIR:-}
+if [[ -n $runtime_base && -d $runtime_base && ! -L $runtime_base && -O $runtime_base ]] &&
+   [[ $(stat -c %a -- "$runtime_base") == 700 ]]; then
+  runtime="$runtime_base/omascayl"
+else
+  runtime="$cache_dir/runtime"
+fi
+config="$runtime/config"
+mkdir -p -m 700 -- "$runtime"
+[[ ! -L $runtime && -O $runtime && ! -L $config ]] || die "$runtime is not a private folder of yours."
+
+if [[ -f $config/shell.qml ]] && "$qs" ipc -p "$config" call omascayl status >/dev/null 2>&1; then
+  if [[ -n $target ]]; then
+    "$qs" ipc -p "$config" call omascayl open "$target" >/dev/null
+  fi
+  focus_window
+  exit 0
+fi
+
+mapfile -t backend < <("$root/bin/omascayl-backend" || true)
+
+# Rebuilt on every cold start, so it always matches this checkout and the
+# current Omarchy install. Nothing is running from it at this point.
+rm -rf -- "$config"
+mkdir -p -- "$config"
+for file in "$src"/*; do
+  ln -s -- "$file" "$config/$(basename -- "$file")"
+done
+ln -s -- "$omarchy/shell/Commons" "$config/Commons"
+ln -s -- "$omarchy/shell/Ui" "$config/Ui"
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/omascayl"
+mkdir -p -- "$state_dir" "$cache_dir"
+
+icon="$root/share/omascayl.svg"
+[[ -f $icon ]] || icon=image-x-generic
+
+# OMASCAYL_BIN / OMASCAYL_MODELS are not exported here: the app asks
+# bin/omascayl-backend itself, each time it checks, so a backend installed by
+# bin/omascayl-setup while it is open is found without a restart. Values the
+# user set are inherited as they are.
+export OMASCAYL_PICTURES="${backend[2]:-$HOME/Pictures}"
+export OMASCAYL_ICON="$icon"
+export OMASCAYL_TOOLS="$root/bin"
+export OMASCAYL_OPEN="$target"
+export OMASCAYL_STATE_DIR="$state_dir"
+export OMASCAYL_CACHE_DIR="$cache_dir"
+export OMARCHY_PATH="$omarchy"
+# Upscayl output can be far larger than Qt's default 256 MB decode budget.
+export QT_IMAGEIO_MAXALLOC="${QT_IMAGEIO_MAXALLOC:-2048}"
+
+exec "$qs" -n -p "$config"

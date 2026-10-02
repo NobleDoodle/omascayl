@@ -1,0 +1,193 @@
+#!/usr/bin/python3 -IB
+"""Out-of-process file picker for Omascayl.
+
+    omascayl-pick image|folder TITLE [START_FOLDER]
+
+Prints the chosen absolute path and exits 0. Exits 1 when the user cancels,
+2 when no picker could be shown (the reason goes to stderr).
+
+The dialog comes from the xdg-desktop-portal FileChooser, so it runs in the
+portal backend's process, never in Omascayl's or omarchy-shell's. GTK's file
+chooser and its gvfs monitors in particular stay out of the shell. If the
+portal is unavailable it falls back to zenity, which is also a separate
+process. OMASCAYL_PICKER=portal|zenity forces one of them.
+
+SIGTERM or SIGINT closes an open portal dialog before exiting.
+"""
+
+import os
+import secrets
+import shutil
+import signal
+import subprocess
+import sys
+from urllib.parse import unquote, urlparse
+
+# Commands come from the system's own folders only, never the inherited PATH.
+os.environ["PATH"] = "/usr/bin:/usr/share/omarchy/bin"
+
+IMAGE_GLOBS = ["*.png", "*.jpg", "*.jpeg", "*.jfif", "*.webp",
+               "*.PNG", "*.JPG", "*.JPEG", "*.JFIF", "*.WEBP"]
+IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"]
+
+PORTAL = "org.freedesktop.portal.Desktop"
+PORTAL_PATH = "/org/freedesktop/portal/desktop"
+
+
+def fail(message):
+    print("omascayl-pick: " + message, file=sys.stderr)
+    sys.exit(2)
+
+
+def path_from_uri(uri):
+    parsed = urlparse(uri)
+    if parsed.scheme != "file":
+        fail("the picker returned a non-local location: " + uri)
+    return unquote(parsed.path)
+
+
+class PortalUnavailable(Exception):
+    pass
+
+
+def pick_portal(kind, title, start):
+    try:
+        import gi
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio, GLib
+    except (ImportError, ValueError) as e:
+        raise PortalUnavailable("python-gobject is missing (%s)" % e)
+
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    except GLib.Error as e:
+        raise PortalUnavailable("no session bus (%s)" % e.message)
+
+    # Subscribe to the Response signal before calling, on the request path
+    # the portal will use, so a fast answer can't be missed.
+    token = "omascayl_" + secrets.token_hex(8)
+    sender = bus.get_unique_name().lstrip(":").replace(".", "_")
+    expected = "%s/request/%s/%s" % (PORTAL_PATH, sender, token)
+    loop = GLib.MainLoop()
+    state = {"code": None, "uris": [], "handle": expected}
+
+    def on_response(_conn, _sender, obj_path, _iface, _signal, params):
+        if obj_path != state["handle"]:
+            return
+        code, results = params.unpack()
+        state["code"] = code
+        state["uris"] = list(results.get("uris", []))
+        loop.quit()
+
+    def subscribe(path):
+        return bus.signal_subscribe(PORTAL, "org.freedesktop.portal.Request", "Response",
+                                    path, None, Gio.DBusSignalFlags.NONE, on_response)
+
+    sub = subscribe(expected)
+
+    options = {
+        "handle_token": GLib.Variant("s", token),
+        "modal": GLib.Variant("b", True),
+        "multiple": GLib.Variant("b", False),
+    }
+    if kind == "folder":
+        options["directory"] = GLib.Variant("b", True)
+    else:
+        rules = [(0, g) for g in IMAGE_GLOBS] + [(1, m) for m in IMAGE_MIMES]
+        images = ("Images (PNG, JPG, JPEG, JFIF, WEBP)", rules)
+        options["filters"] = GLib.Variant("a(sa(us))", [images])
+        options["current_filter"] = GLib.Variant("(sa(us))", images)
+    if start and os.path.isdir(start):
+        options["current_folder"] = GLib.Variant("ay", os.fsencode(start) + b"\0")
+
+    try:
+        reply = bus.call_sync(PORTAL, PORTAL_PATH, "org.freedesktop.portal.FileChooser",
+                              "OpenFile", GLib.Variant("(ssa{sv})", ("", title, options)),
+                              GLib.VariantType("(o)"), Gio.DBusCallFlags.NONE, 30000, None)
+    except GLib.Error as e:
+        bus.signal_unsubscribe(sub)
+        raise PortalUnavailable(e.message)
+
+    handle = reply.unpack()[0]
+    if handle != expected:
+        # Portals older than version 0.9 pick their own path.
+        bus.signal_unsubscribe(sub)
+        state["handle"] = handle
+        sub = subscribe(handle)
+
+    def close_and_quit(*_):
+        try:
+            bus.call_sync(PORTAL, state["handle"], "org.freedesktop.portal.Request", "Close",
+                          None, None, Gio.DBusCallFlags.NONE, 2000, None)
+        except GLib.Error:
+            pass
+        state["code"] = 1
+        loop.quit()
+        return GLib.SOURCE_REMOVE
+
+    try:
+        gi.require_version("GLibUnix", "2.0")
+        from gi.repository import GLibUnix
+        add_signal = GLibUnix.signal_add
+    except (ImportError, ValueError):
+        add_signal = GLib.unix_signal_add
+    add_signal(GLib.PRIORITY_DEFAULT, signal.SIGTERM, close_and_quit)
+    add_signal(GLib.PRIORITY_DEFAULT, signal.SIGINT, close_and_quit)
+    loop.run()
+    bus.signal_unsubscribe(sub)
+
+    if state["code"] == 0 and state["uris"]:
+        return path_from_uri(state["uris"][0])
+    if state["code"] in (0, 1):
+        return None
+    fail("the file picker failed (portal response %s)" % state["code"])
+
+
+def pick_zenity(kind, title, start):
+    zenity = shutil.which("zenity")
+    if not zenity:
+        fail("no file picker available: install xdg-desktop-portal-gtk (or another "
+             "FileChooser portal backend), or zenity")
+    cmd = [zenity, "--file-selection", "--title", title]
+    if kind == "folder":
+        cmd.append("--directory")
+    else:
+        cmd += ["--file-filter", "Images | " + " ".join(IMAGE_GLOBS)]
+    if start and os.path.isdir(start):
+        cmd += ["--filename", start.rstrip("/") + "/"]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip().splitlines()[0]
+    if result.returncode == 1:
+        return None
+    fail("zenity failed with exit code %d" % result.returncode)
+
+
+def main(argv):
+    if len(argv) < 3 or argv[1] not in ("image", "folder"):
+        print(__doc__.strip().splitlines()[2].strip(), file=sys.stderr)
+        sys.exit(2)
+    kind, title = argv[1], argv[2]
+    start = argv[3] if len(argv) > 3 else ""
+    forced = os.environ.get("OMASCAYL_PICKER", "")
+
+    path = None
+    if forced == "zenity":
+        path = pick_zenity(kind, title, start)
+    else:
+        try:
+            path = pick_portal(kind, title, start)
+        except PortalUnavailable as e:
+            if forced == "portal":
+                fail("the file chooser portal is unavailable: %s" % e)
+            print("omascayl-pick: portal unavailable (%s), using zenity" % e, file=sys.stderr)
+            path = pick_zenity(kind, title, start)
+
+    if not path:
+        sys.exit(1)
+    print(path)
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main(sys.argv)

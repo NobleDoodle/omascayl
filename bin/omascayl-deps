@@ -1,0 +1,92 @@
+#!/usr/bin/bash
+# Checks what Omascayl needs, one line per item, tab-separated:
+#
+#   <state>  <key>  <need>  <label>  <packages>  <why>
+#
+#   state     ok | missing
+#   need      required (nothing can be upscayled without it) | recommended
+#   packages  Arch packages that provide it ("-" when it is not a package)
+#
+# Exits 0 when nothing required is missing, 1 otherwise. Read by App.qml and
+# by bin/omascayl-setup, so the window and the installer always agree.
+set -u
+# Commands come from the system's own folders only, never the inherited PATH.
+PATH=/usr/bin:/usr/share/omarchy/bin
+export PATH
+here=$(cd -- "$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")" && pwd)
+
+missing_required=0
+line() {  # state key need label packages why
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$@"
+  [[ $1 == missing && $3 == required ]] && missing_required=1
+  return 0
+}
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# --- the Upscayl backend: engine and models ---------------------------------
+mapfile -t backend < <("$here/omascayl-backend" 2>/dev/null)
+engine_ok=false; models_ok=false
+"$here/omascayl-backend" >/dev/null 2>&1 && engine_ok=true
+compgen -G "${backend[1]:-/nonexistent}/*.param" >/dev/null && models_ok=true
+if $engine_ok && $models_ok; then
+  line ok backend required "Upscayl engine and models" "-" "${backend[0]}"
+else
+  why="the engine (upscayl-bin) that does the upscaling, and its AI model files"
+  $engine_ok && why="the AI model files for the engine at ${backend[0]}"
+  line missing backend required "Upscayl engine and models" "upscayl-bin" "$why"
+fi
+
+# --- Vulkan: the loader library and at least one GPU driver -----------------
+loader=false; icd=false
+for lib in /usr/lib/libvulkan.so.1 /usr/lib64/libvulkan.so.1 /usr/lib/x86_64-linux-gnu/libvulkan.so.1; do
+  [[ -e $lib ]] && loader=true
+done
+for dir in /usr/share/vulkan/icd.d /etc/vulkan/icd.d "${XDG_DATA_HOME:-$HOME/.local/share}/vulkan/icd.d"; do
+  compgen -G "$dir/*.json" >/dev/null && icd=true
+done
+if $loader && $icd; then
+  line ok vulkan required "Vulkan GPU driver" "-" "the engine runs on the GPU through Vulkan"
+else
+  pkgs="vulkan-icd-loader"
+  $loader && pkgs="-"
+  line missing vulkan required "Vulkan GPU driver" "$pkgs" "the engine runs on the GPU through Vulkan; a Vulkan driver for your GPU is needed"
+fi
+
+# --- the file pickers --------------------------------------------------------
+portal=false
+if have python3 && python3 -c 'import gi; gi.require_version("Gio", "2.0"); from gi.repository import Gio' 2>/dev/null; then
+  if [[ -x /usr/lib/xdg-desktop-portal ]] && compgen -G "/usr/share/xdg-desktop-portal/portals/*.portal" >/dev/null &&
+     grep -lq "org.freedesktop.impl.portal.FileChooser" /usr/share/xdg-desktop-portal/portals/*.portal 2>/dev/null; then
+    portal=true
+  fi
+fi
+if $portal || have zenity; then
+  line ok picker recommended "File and folder pickers" "-" "the Select Image and folder buttons"
+else
+  pkgs=""
+  have python3 || pkgs+="python "
+  python3 -c 'import gi' 2>/dev/null || pkgs+="python-gobject "
+  [[ -x /usr/lib/xdg-desktop-portal ]] || pkgs+="xdg-desktop-portal "
+  grep -lq "org.freedesktop.impl.portal.FileChooser" /usr/share/xdg-desktop-portal/portals/*.portal 2>/dev/null || pkgs+="xdg-desktop-portal-gtk "
+  pkgs=${pkgs% }
+  line missing picker recommended "File and folder pickers" "${pkgs:--}" "the Select Image and folder buttons (drag and drop still works without them)"
+fi
+
+# --- smaller helpers -----------------------------------------------------------
+if have wl-paste && have wl-copy; then
+  line ok clipboard recommended "Clipboard" "-" "Ctrl+V paste and Copy Path"
+else
+  line missing clipboard recommended "Clipboard" "wl-clipboard" "Ctrl+V paste and Copy Path"
+fi
+if have notify-send; then
+  line ok notify recommended "Notifications" "-" "a notification when an upscayl finishes"
+else
+  line missing notify recommended "Notifications" "libnotify" "a notification when an upscayl finishes"
+fi
+if have xdg-open; then
+  line ok open recommended "Open Image and Open Folder" "-" "opening results in your image viewer and file manager"
+else
+  line missing open recommended "Open Image and Open Folder" "xdg-utils" "opening results in your image viewer and file manager"
+fi
+
+exit $missing_required

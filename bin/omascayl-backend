@@ -1,0 +1,47 @@
+#!/usr/bin/bash
+# Finds the upscayl backend and prints three lines:
+#   1. the upscayl-bin executable
+#   2. its models folder
+#   3. the user's Pictures folder (where pasted images' results go)
+# Exits 1 if no executable backend was found (the lines are still printed,
+# with best-guess defaults). OMASCAYL_BIN / OMASCAYL_MODELS override the search.
+# Used by bin/omascayl and, in plugin mode, by App.qml.
+set -u
+# Commands come from the system's own folders only, never the inherited PATH.
+PATH=/usr/bin:/usr/share/omarchy/bin
+export PATH
+
+bin=${OMASCAYL_BIN:-}
+if [[ -z $bin ]]; then
+  # System installs first, then the copy bin/omascayl-setup can download into
+  # the user's own data folder (with its models next to it).
+  for candidate in upscayl-bin upscayl-ncnn /usr/share/upscayl/bin/upscayl-bin \
+      /opt/upscayl/resources/bin/upscayl-bin /opt/Upscayl/resources/bin/upscayl-bin \
+      "${XDG_DATA_HOME:-$HOME/.local/share}/omascayl/backend/upscayl-bin"; do
+    if found=$(command -v "$candidate" 2>/dev/null); then
+      bin=$found
+      break
+    fi
+  done
+fi
+bin=${bin:-upscayl-bin}
+real_bin=$(readlink -f -- "$bin" 2>/dev/null || echo "$bin")
+
+models=${OMASCAYL_MODELS:-}
+if [[ -z $models ]]; then
+  bin_dir=$(dirname -- "$real_bin")
+  for candidate in "$bin_dir/../models" "$bin_dir/models" /usr/share/upscayl/models \
+      /opt/upscayl/resources/models /opt/Upscayl/resources/models; do
+    if compgen -G "$candidate/*.param" >/dev/null; then
+      models=$(readlink -f -- "$candidate")
+      break
+    fi
+  done
+fi
+models=${models:-/usr/share/upscayl/models}
+
+pictures=$(xdg-user-dir PICTURES 2>/dev/null || true)
+[[ -n $pictures && $pictures != "$HOME" ]] || pictures="$HOME/Pictures"
+
+printf '%s\n%s\n%s\n' "$bin" "$models" "$pictures"
+[[ -x $real_bin ]]

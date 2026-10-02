@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.nobledoodle.omascayl",
+  "name": "Omascayl",
+  "version": "1.0.0",
+  "author": "NobleDoodle",
+  "license": "AGPL-3.0-only",
+  "description": "AI image upscaler for Omarchy: Upscayl's models and workflow (single, double and batch upscayl, before/after slider and lens) in a themed app window. Opens from the app launcher, no bar widget. Needs the upscayl-bin backend.",
+  "kinds": [
+    "panel"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "Plugin.qml"
+  }
+}

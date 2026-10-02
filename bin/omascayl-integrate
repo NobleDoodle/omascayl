@@ -1,0 +1,208 @@
+#!/usr/bin/python3 -IB
+"""Desktop integration for the Omascayl omarchy-shell plugin.
+
+    omascayl-integrate install <plugin-dir>
+
+`omarchy plugin add` only clones and enables plugins; it never runs install
+hooks. So the plugin calls this each time the shell loads it, to give Omascayl
+what an app has: an app launcher entry (also offered under Open With for
+images), an icon, and the `omascayl` command. Nothing changes once they are in
+place.
+
+Everything points at a small launcher (the "stub") in
+~/.local/share/omascayl, outside the plugin folder. The stub hands off to the
+plugin's bin/omascayl, and once the plugin is removed it deletes the entry,
+icon, command, a downloaded backend, and itself.
+
+This runs unattended, so it goes through omascayl_fs: writes relative to
+no-follow, owner-checked directory handles, random O_EXCL temporaries renamed
+into place, bounded non-blocking reads, helpers by absolute path. Files written
+by ./install.sh for a standalone install are left alone; the entry carries
+X-Omascayl-Managed=plugin when this script owns it.
+"""
+
+import os
+import sys
+
+os.environ["PATH"] = "/usr/bin:/usr/share/omarchy/bin"
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, HERE)
+import omascayl_fs as fs  # noqa: E402
+
+# Tools run by absolute path; tests/integrate.sh points this at fakes.
+BIN = "/usr/bin/"
+APP_ID = "io.github.nobledoodle.omascayl"
+MAX_READ = 1 << 20
+
+
+# The stub outlives the plugin folder, so it carries its own copy of
+# omascayl_fs rather than importing it from there.
+STUB = r'''#!/usr/bin/python3 -IB
+# Omascayl launcher, written by the Omascayl omarchy-shell plugin
+# (bin/omascayl-integrate). It hands off to the plugin while the plugin is
+# installed, and removes Omascayl's launcher entry, icon, command, downloaded
+# backend and itself once the plugin is gone.
+import os, sys, time
+os.environ["PATH"] = "/usr/bin:/usr/share/omarchy/bin"
+PLUGIN = %(plugin)r
+HOME = %(home)r
+DATA = %(data)r
+APP_ID = %(app_id)r
+STUB = %(stub)r
+BIN = %(bin)r
+
+# ---- omascayl_fs ----
+%(fs)s
+# ---- end of omascayl_fs ----
+
+def plugin_present():
+    return os.access(os.path.join(PLUGIN, "bin", "omascayl"), os.X_OK)
+
+def cleanup():
+    try:
+        data = base_dir(DATA)
+    except OSError:
+        return
+    try:
+        apps = sub_dir(data, ["applications"], False)
+        if b"\nX-Omascayl-Managed=plugin" in (read_small(apps, APP_ID + ".desktop") or b""):
+            os.unlink(APP_ID + ".desktop", dir_fd=apps)
+        os.close(apps)
+    except OSError:
+        pass
+    try:
+        icons = sub_dir(data, ["icons", "hicolor", "scalable", "apps"], False)
+        try:
+            os.unlink(APP_ID + ".svg", dir_fd=icons)
+        finally:
+            os.close(icons)
+    except OSError:
+        pass
+    try:
+        home = base_dir(HOME)
+        try:
+            local_bin = sub_dir(home, [".local", "bin"], False)
+            if readlink_or_none(local_bin, "omascayl") == STUB:
+                os.unlink("omascayl", dir_fd=local_bin)
+            os.close(local_bin)
+        finally:
+            os.close(home)
+    except OSError:
+        pass
+    try:
+        own = sub_dir(data, ["omascayl"], False)
+        try:
+            # The engine and models bin/omascayl-setup downloads live next to
+            # the stub; they are Omascayl's own copy, so they go with it.
+            remove(own, "backend")
+            os.unlink("plugin-launch", dir_fd=own)
+        finally:
+            os.close(own)
+        os.rmdir("omascayl", dir_fd=data)
+    except OSError:
+        pass
+    os.close(data)
+    run_tool([BIN + "update-desktop-database", "-q", os.path.join(DATA, "applications")])
+
+# --cleanup-if-removed: run by the plugin as it unloads. A shell restart also
+# unloads it, so only clean up if the plugin folder really disappears.
+if sys.argv[1:2] == ["--cleanup-if-removed"]:
+    for _ in range(20):
+        if not plugin_present():
+            cleanup()
+            break
+        time.sleep(0.5)
+    sys.exit(0)
+
+if plugin_present():
+    launcher = os.path.join(PLUGIN, "bin", "omascayl")
+    os.execv(launcher, [launcher] + sys.argv[1:])
+
+cleanup()
+run_tool([BIN + "notify-send", "-a", "Omascayl", "--", "Omascayl is not installed",
+          "Its launcher entry was left behind and has been removed. Reinstall with: "
+          "omarchy plugin add https://github.com/NobleDoodle/omascayl --enable"])
+sys.exit(1)
+'''
+
+
+def read_plugin_file(*parts):
+    """A file shipped in the plugin folder, read bounded and without following
+    a symlink at the last component."""
+    fd = os.open(os.path.join(*parts), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(fd, "rb") as f:
+        data = f.read(MAX_READ + 1)
+    if len(data) > MAX_READ:
+        raise OSError("too large: %s" % os.path.join(*parts))
+    return data
+
+
+def main(argv):
+    if len(argv) != 3 or argv[1] != "install":
+        print("usage: omascayl-integrate install <plugin-dir>", file=sys.stderr)
+        return 2
+    plugin = os.path.realpath(argv[2])
+    if not os.access(os.path.join(plugin, "bin", "omascayl"), os.X_OK):
+        print("omascayl-integrate: no bin/omascayl in %s" % plugin, file=sys.stderr)
+        return 2
+
+    home_path = os.environ.get("HOME", "")
+    data_path = fs.data_home()
+    stub_path = os.path.join(data_path, "omascayl", "plugin-launch")
+
+    home = fs.base_dir(home_path)
+    data = fs.open_base(data_path, [".local", "share"])
+    own = fs.sub_dir(data, ["omascayl"], True)
+    apps = fs.sub_dir(data, ["applications"], True)
+    icons = fs.sub_dir(data, ["icons", "hicolor", "scalable", "apps"], True)
+    local_bin = fs.sub_dir(home, [".local", "bin"], True)
+
+    with open(fs.__file__, encoding="utf-8") as f:
+        fs_source = f.read()
+    stub = STUB % {"plugin": plugin, "home": home_path, "data": data_path, "app_id": APP_ID,
+                   "stub": stub_path, "bin": BIN, "fs": fs_source}
+    changed = fs.write_file(own, "plugin-launch", stub.encode(), 0o755)
+
+    # Ours: no entry yet, one we wrote, or one an older plugin install wrote
+    # straight into the plugin folder. A standalone install's entry stays, and
+    # so does anything that is not a plain file (a symlink, a FIFO).
+    entry_name = APP_ID + ".desktop"
+    existing = fs.read_small(apps, entry_name)
+    if existing is None and fs.exists(apps, entry_name):
+        existing = b""
+    ours = existing is None or b"\nX-Omascayl-Managed=plugin" in existing \
+        or ("/plugins/%s/" % APP_ID).encode() in existing
+    if ours:
+        lines = []
+        for line in read_plugin_file(plugin, "share", entry_name).decode().splitlines():
+            if line.startswith("Exec=omascayl "):
+                line = "Exec=%s %s" % (stub_path, line[len("Exec=omascayl "):])
+            lines.append(line)
+        lines.append("X-Omascayl-Managed=plugin")
+        changed |= fs.write_file(apps, entry_name, ("\n".join(lines) + "\n").encode(), 0o644)
+        changed |= fs.write_file(icons, APP_ID + ".svg", read_plugin_file(plugin, "share", "omascayl.svg"), 0o644)
+
+    # The command: create it, or take it over from an older plugin install that
+    # linked straight into the plugin folder. A standalone install's link stays.
+    link = fs.readlink_or_none(local_bin, "omascayl")
+    if (link is None and not fs.exists(local_bin, "omascayl")) or \
+            (link is not None and link != stub_path and ("/plugins/%s/" % APP_ID) in link):
+        fs.link_to(local_bin, "omascayl", stub_path)
+        changed = True
+
+    for fd in (local_bin, icons, apps, own, data, home):
+        os.close(fd)
+
+    if changed:
+        fs.run_tool([BIN + "update-desktop-database", "-q", os.path.join(data_path, "applications")])
+        fs.run_tool([BIN + "gtk-update-icon-cache", "-q", "-t", os.path.join(data_path, "icons", "hicolor")])
+        print("omascayl-integrate: launcher entry, icon and command installed")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv))
+    except OSError as e:
+        print("omascayl-integrate: %s" % e, file=sys.stderr)
+        sys.exit(1)

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Omascayl
+GenericName=AI Image Upscaler
+Comment=Upscale images with AI, Upscayl's models in an Omarchy-themed app
+Exec=omascayl %f
+Icon=io.github.nobledoodle.omascayl
+Terminal=false
+Categories=Graphics;RasterGraphics;
+MimeType=image/png;image/jpeg;image/webp;
+Keywords=upscale;upscayl;upscaler;ai;enhance;image;
+StartupWMClass=io.github.nobledoodle.omascayl

@@ -1,0 +1,148 @@
+#!/usr/bin/python3 -IB
+"""The writes bin/omascayl-setup makes in the user's own folders.
+
+    omascayl-store finished
+        Touch ~/.local/state/omascayl/setup-finished (the open window watches
+        it and checks dependencies again).
+
+    omascayl-store place-backend STAGE VERSION_TEXT NAME=SHA256...
+        Install a downloaded backend from STAGE into
+        ~/.local/share/omascayl/backend. Each NAME (upscayl-bin, or
+        models/<file>) is copied from STAGE into a new folder and its SHA-256
+        checked on the bytes actually copied, so nothing that changed in STAGE
+        after setup checked it can get in. The new folder replaces the old one
+        only once every file matched; otherwise nothing is kept.
+
+All writes go through omascayl_fs (no-follow, owner-checked directory handles;
+random O_EXCL temporaries renamed into place).
+"""
+
+import hashlib
+import os
+import secrets
+import stat
+import sys
+import time
+
+os.environ["PATH"] = "/usr/bin:/usr/share/omarchy/bin"
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import omascayl_fs as fs  # noqa: E402
+
+MAX_FILE = 512 << 20
+CHUNK = 1 << 20
+
+
+def finished():
+    state = fs.open_base(fs.state_home(), [".local", "state"])
+    try:
+        own = fs.sub_dir(state, ["omascayl"], True)
+        try:
+            fs.write_file(own, "setup-finished", b"%d\n" % time.time_ns(), 0o644)
+        finally:
+            os.close(own)
+    finally:
+        os.close(state)
+
+
+def copy_checked(stage, rel, sha, dst_dir, name, mode):
+    """Copy STAGE/rel into dst_dir/name, hashing what is written."""
+    src = os.open(os.path.join(stage, rel), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        st = os.fstat(src)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_FILE:
+            raise OSError("not a plain file: %s" % rel)
+        out, tmp = fs.create_temp(dst_dir, name, mode)
+        try:
+            digest = hashlib.sha256()
+            total = 0
+            while True:
+                chunk = os.read(src, CHUNK)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_FILE:
+                    raise OSError("too large: %s" % rel)
+                digest.update(chunk)
+                view = memoryview(chunk)
+                while view:
+                    view = view[os.write(out, view):]
+            if digest.hexdigest() != sha:
+                raise OSError("checksum mismatch: %s" % rel)
+            os.fchmod(out, mode)
+            os.fsync(out)
+        except BaseException:
+            os.close(out)
+            os.unlink(tmp, dir_fd=dst_dir)
+            raise
+        os.close(out)
+        os.rename(tmp, name, src_dir_fd=dst_dir, dst_dir_fd=dst_dir)
+    finally:
+        os.close(src)
+
+
+def place_backend(stage, version_text, entries):
+    wanted = []
+    for entry in entries:
+        rel, _, sha = entry.partition("=")
+        parts = rel.split("/")
+        if not (rel == "upscayl-bin" or (len(parts) == 2 and parts[0] == "models"
+                                         and parts[1] not in ("", ".", ".."))):
+            raise OSError("unexpected backend file: %r" % rel)
+        if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
+            raise OSError("bad checksum for %s" % rel)
+        wanted.append((rel, sha))
+    if not any(rel == "upscayl-bin" for rel, _ in wanted):
+        raise OSError("no engine given")
+
+    data = fs.open_base(fs.data_home(), [".local", "share"])
+    own = fs.sub_dir(data, ["omascayl"], True)
+    new = ".backend-new." + secrets.token_hex(8)
+    os.mkdir(new, 0o755, dir_fd=own)
+    try:
+        new_fd = fs.sub_dir(own, [new], False)
+        models_fd = fs.sub_dir(new_fd, ["models"], True)
+        try:
+            for rel, sha in wanted:
+                if rel == "upscayl-bin":
+                    copy_checked(stage, rel, sha, new_fd, "upscayl-bin", 0o755)
+                else:
+                    copy_checked(stage, rel, sha, models_fd, rel.split("/")[1], 0o644)
+            fs.write_file(new_fd, "VERSION", version_text.encode() + b"\n", 0o644)
+            os.fsync(models_fd)
+            os.fsync(new_fd)
+        finally:
+            os.close(models_fd)
+            os.close(new_fd)
+        old = None
+        if fs.exists(own, "backend"):
+            old = ".backend-old." + secrets.token_hex(8)
+            os.rename("backend", old, src_dir_fd=own, dst_dir_fd=own)
+        os.rename(new, "backend", src_dir_fd=own, dst_dir_fd=own)
+        new = None
+        os.fsync(own)
+        if old:
+            fs.remove(own, old)
+    finally:
+        if new:
+            fs.remove(own, new)
+        os.close(own)
+        os.close(data)
+
+
+def main(argv):
+    if argv[1:] == ["finished"]:
+        finished()
+        return 0
+    if len(argv) >= 5 and argv[1] == "place-backend" and os.path.isabs(argv[2]):
+        place_backend(argv[2], argv[3], argv[4:])
+        return 0
+    print(__doc__.strip(), file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv))
+    except OSError as e:
+        print("omascayl-store: %s" % e, file=sys.stderr)
+        sys.exit(1)
