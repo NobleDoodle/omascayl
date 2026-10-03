@@ -7,10 +7,63 @@
 Omascayl is a QML/Quickshell port of [Upscayl](https://github.com/upscayl/upscayl).
 It runs the same `upscayl-bin` backend ([upscayl-ncnn](https://github.com/upscayl/upscayl-ncnn)) with the same models, arguments and output names. The Electron UI is replaced by a small Quickshell window. That window uses Omarchy's own shell components and follows your Omarchy theme live.
 
-It is an application, not a bar widget: it opens in its own window from the app launcher. It installs in either of two ways:
+## Install
 
-- **As an `omarchy-shell` plugin** (a `panel` with no bar widget). The window opens instantly, and an upscayl keeps running after you close it.
-- **Standalone**, as its own Quickshell process that doesn't touch `omarchy-shell`.
+```fish
+omarchy plugin add https://github.com/NobleDoodle/omascayl --enable
+```
+
+Then open **Omascayl** from the app launcher.
+
+> [!TIP]
+> **You don't install any dependencies yourself.** On first open, Omascayl checks what it needs and lists anything missing. Choose **Open setup in a terminal**, and the setup opens in Omarchy's floating terminal:
+>
+> 1. It shows exactly what it will install.
+> 2. It asks once: **Proceed? [Y/n]**. Press Enter to go ahead.
+> 3. It downloads the Upscayl engine and models (about 175 MB, no password). It installs any missing packages with `pacman`, which is the only step that asks for your password.
+>
+> The open window notices when setup finishes, with no restart. **Settings → Dependencies** shows the status and runs setup again any time.
+
+The plugin is an app, not a bar widget. As the shell loads it, it adds:
+- an **Omascayl** entry to the app launcher, also offered under *Open With* for PNG, JPEG and WebP
+- its icon
+- the `omascayl` command in `~/.local/bin`
+
+Update with `omarchy plugin update io.github.nobledoodle.omascayl`, then `omarchy-restart-shell`. Uninstall with `omarchy plugin remove io.github.nobledoodle.omascayl`. The launcher entry, icon, command and downloaded engine go with it, and your settings in `~/.local/state/omascayl` are kept.
+
+### Other ways to install
+
+From a clone, either as the same plugin or **standalone**, as its own Quickshell process that doesn't touch `omarchy-shell`:
+
+```fish
+git clone https://github.com/NobleDoodle/omascayl
+cd omascayl
+./install.sh --plugin    # the same plugin install, from this checkout
+./install.sh             # or: standalone, its own Quickshell process
+```
+
+- **`--plugin`** runs `omarchy plugin add` on the checkout. `omarchy plugin update` then follows the branch checked out in that repository.
+- **Without a flag**, the app is copied to `~/.local/share/omascayl/app` with its own launcher entry and command.
+
+`./install.sh --uninstall` removes either form. The two forms share their settings. To run from a checkout without installing: `bin/omascayl` (add `--standalone` to skip an installed plugin).
+
+How the plugin's app integration works: `omarchy plugin add` runs no install scripts, so on every load `bin/omascayl-integrate` makes sure the launcher entry, icon and command exist (it changes nothing once they do). They point at a small launcher in `~/.local/share/omascayl`, outside the plugin folder. If the plugin is removed, that launcher deletes them, either as the shell unloads the plugin or, at the latest, the next time they are used.
+
+## Requirements
+
+The setup above takes care of all of these. This is what it checks for.
+
+**Required:**
+- **The Upscayl engine and its models.** The setup downloads them into `~/.local/share/omascayl/backend`. That's upscayl-ncnn's own engine release plus Upscayl's seven models, each checked against a SHA-256 pinned in the script. They're removed with Omascayl. An existing Upscayl install (the AUR `upscayl-bin` package) is used instead if present, and `OMASCAYL_BIN` and `OMASCAYL_MODELS` point Omascayl at any other copy.
+- **A Vulkan GPU driver:** `vulkan-icd-loader` plus your GPU's driver. The setup installs `vulkan-radeon` or `vulkan-intel` for the GPU it finds. An NVIDIA driver is left to you, since it must match your kernel driver.
+
+**Recommended** (Omarchy ships them):
+- `python-gobject` with an xdg-desktop-portal FileChooser backend (`xdg-desktop-portal-gtk`) for the file pickers, or `zenity`
+- `wl-clipboard` for paste
+- `libnotify` for notifications
+- `xdg-utils` for *Open Image* / *Open Folder*
+
+**Already part of Omarchy:** the Quickshell-based `omarchy-shell` and `quickshell` 0.3+. Omascayl imports Omarchy's `shell/Commons` and `shell/Ui` modules.
 
 ![Slider comparison](docs/compare.png)
 
@@ -30,57 +83,11 @@ Everything in Upscayl 2.15's workflow:
   - It reuses an existing result unless *Overwrite Previous Upscale* is on.
   - *Save Output Folder*, desktop notifications, copyable logs, usage stats, and reset.
   - Upscayl's error messages for GPU, read/write and tile-size failures.
+- **Background jobs:** as a plugin, an upscayl keeps running after you close the window.
 
 ![Lens view and settings](docs/lens.png)
 
 Left out on purpose: Upscayl's theme and language pickers (the window follows Omarchy instead), auto-update, telemetry and the Upscayl Cloud prompts.
-
-## Requirements
-
-You don't have to install these by hand. On first open, Omascayl checks for them, lists anything missing and offers **Open setup in a terminal**. That runs `bin/omascayl-setup` in Omarchy's floating terminal. It shows what it will install and asks once: **Proceed? [Y/n]**. **Settings → Dependencies** shows the status and runs setup again any time.
-
-**Required:**
-- **The Upscayl engine and its models.** The setup downloads them into `~/.local/share/omascayl/backend`: about 175 MB, no password. That's upscayl-ncnn's own engine release plus Upscayl's seven models, each checked against a SHA-256 pinned in the script. They're removed with Omascayl. An existing Upscayl install (the AUR `upscayl-bin` package) is used instead if present, and `OMASCAYL_BIN` and `OMASCAYL_MODELS` point Omascayl at any other copy.
-- **A Vulkan GPU driver:** `vulkan-icd-loader` plus your GPU's driver. The setup installs `vulkan-radeon` or `vulkan-intel` for the GPU it finds; an NVIDIA driver is left to you, since it must match your kernel driver.
-
-**Recommended** (Omarchy ships them):
-- `python-gobject` with an xdg-desktop-portal FileChooser backend (`xdg-desktop-portal-gtk`) for the file pickers, or `zenity`
-- `wl-clipboard` for paste
-- `libnotify` for notifications
-- `xdg-utils` for *Open Image* / *Open Folder*
-
-**Already part of Omarchy:** the Quickshell-based `omarchy-shell` and `quickshell` 0.3+. Omascayl imports Omarchy's `shell/Commons` and `shell/Ui` modules.
-
-## Install
-
-```fish
-omarchy plugin add https://github.com/NobleDoodle/omascayl --enable
-```
-
-That installs the whole app. As the shell loads the plugin, the plugin adds:
-- an **Omascayl** entry to the app launcher, also offered under *Open With* for PNG, JPEG and WebP
-- its icon
-- the `omascayl` command in `~/.local/bin`
-
-Update with `omarchy plugin update io.github.nobledoodle.omascayl`. Uninstall with `omarchy plugin remove io.github.nobledoodle.omascayl`; the launcher entry, icon and command go with it. Your settings in `~/.local/state/omascayl` are kept.
-
-Or install from a clone:
-
-```fish
-git clone https://github.com/NobleDoodle/omascayl
-cd omascayl
-./install.sh --plugin    # the same plugin install, from this checkout
-./install.sh             # or: standalone, its own Quickshell process
-```
-
-- **`--plugin`** runs `omarchy plugin add` on the checkout. `omarchy plugin update` then follows the branch checked out in that repository.
-- **Without a flag**, the app is copied to `~/.local/share/omascayl/app` with its own launcher entry and command. It doesn't touch `omarchy-shell`.
-
-`./install.sh --uninstall` removes either form. The two forms share their settings.
-
-How the plugin's app integration works: `omarchy plugin add` runs no install scripts, so on every load `bin/omascayl-integrate` makes sure the launcher entry, icon and command exist (it changes nothing once they do). They point at a small launcher in `~/.local/share/omascayl`, outside the plugin folder. If the plugin is removed, that launcher deletes them, either as the shell unloads the plugin or, at the latest, the next time they are used.
-
-To run from a checkout without installing: `bin/omascayl` (add `--standalone` to skip an installed plugin).
 
 ## Usage
 
