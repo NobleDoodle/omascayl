@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // First-open dependency prompt: what is missing, why it matters, and a button
@@ -9,10 +10,10 @@ Rectangle {
   id: root
 
   required property var app
-  readonly property color muted: Util.alpha(Color.foreground, 0.62)
+  readonly property color muted: Util.alpha(Commons.Color.foreground, 0.62)
 
   visible: app.depsPromptOpen && app.error === null
-  color: Util.alpha(Color.background, 0.6)
+  color: Util.alpha(Commons.Color.background, 0.6)
 
   MouseArea {
     anchors.fill: parent
@@ -23,10 +24,10 @@ Rectangle {
     anchors.centerIn: parent
     width: Math.min(parent.width - 4 * Style.spacing.huge, Style.space(560))
     height: Math.min(parent.height - 4 * Style.spacing.huge, body.implicitHeight + 2 * Style.spacing.popupPadding)
-    color: Color.popups.background
+    color: Commons.Color.popups.background
     radius: Style.cornerRadius
     border.width: Math.max(1, Style.normalBorderWidth)
-    border.color: root.app.requiredMissing ? Color.urgent : Color.popups.border
+    border.color: root.app.requiredMissing ? Commons.Color.urgent : Commons.Color.popups.border
 
     MouseArea { anchors.fill: parent }
 
@@ -40,7 +41,7 @@ Rectangle {
         textFormat: Text.PlainText
         width: parent.width
         text: root.app.requiredMissing ? "Finish setting up Omascayl" : "A few optional pieces are missing"
-        color: Color.popups.text
+        color: Commons.Color.popups.text
         font.family: Style.font.family
         font.pixelSize: Style.font.heading
         font.bold: true
@@ -70,7 +71,7 @@ Rectangle {
           Text {
             textFormat: Text.PlainText
             text: "✗"
-            color: modelData.need === "required" ? Color.urgent : root.muted
+            color: modelData.need === "required" ? Commons.Color.urgent : root.muted
             font.family: Style.font.family
             font.pixelSize: Style.font.body
             font.bold: true
@@ -84,7 +85,7 @@ Rectangle {
               textFormat: Text.PlainText
               width: parent.width
               text: modelData.label + (modelData.need === "required" ? "  (required)" : "")
-              color: Color.popups.text
+              color: Commons.Color.popups.text
               font.family: Style.font.family
               font.pixelSize: Style.font.body
               font.bold: true
@@ -134,8 +135,8 @@ Rectangle {
           bordered: true
           text: root.app.setupRunning ? "Setup is open..." : "Open setup in a terminal"
           enabled: !root.app.setupRunning
-          background: root.app.setupRunning ? "transparent" : Color.accent
-          foreground: root.app.setupRunning ? Color.popups.text : Color.background
+          background: root.app.setupRunning ? "transparent" : Commons.Color.accent
+          foreground: root.app.setupRunning ? Commons.Color.popups.text : Commons.Color.background
           onClicked: root.app.openSetup()
         }
       }

@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import qs.Commons
+import qs.Commons as Commons
 
 // The application window: Upscayl's sidebar on the left, the image viewer on
 // the right, plus drag and drop and keyboard shortcuts. File and folder
@@ -12,7 +13,7 @@ FloatingWindow {
   required property var app
 
   title: "Omascayl"
-  color: Color.background
+  color: Commons.Color.background
   implicitWidth: 1280
   implicitHeight: 820
   minimumSize: Qt.size(900, 580)
@@ -88,7 +89,7 @@ FloatingWindow {
 
     Rectangle {
       anchors.fill: parent
-      color: Color.background
+      color: Commons.Color.background
     }
 
     Sidebar {
@@ -139,13 +140,13 @@ FloatingWindow {
       color: Style.selectedAccentFill
       radius: Style.cornerRadius
       border.width: Math.max(2, Style.selectedBorderWidth)
-      border.color: Color.accent
+      border.color: Commons.Color.accent
 
       Text {
         textFormat: Text.PlainText
         anchors.centerIn: parent
         text: "Drop an image or a folder"
-        color: Color.foreground
+        color: Commons.Color.foreground
         font.family: Style.font.family
         font.pixelSize: Style.font.heading
         font.bold: true

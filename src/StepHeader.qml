@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // "STEP 1  Select Image": Upscayl's step badge followed by its title.
 Row {
@@ -17,14 +18,14 @@ Row {
     radius: Style.cornerRadius > 0 ? height / 2 : 0
     color: Style.selectedAccentFill
     border.width: 1
-    border.color: Color.accent
+    border.color: Commons.Color.accent
 
     Text {
       textFormat: Text.PlainText
       id: badge
       anchors.centerIn: parent
       text: "STEP " + root.step
-      color: Color.accent
+      color: Commons.Color.accent
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
       font.bold: true
@@ -35,7 +36,7 @@ Row {
     textFormat: Text.PlainText
     anchors.verticalCenter: parent.verticalCenter
     text: root.title
-    color: Color.foreground
+    color: Commons.Color.foreground
     font.family: Style.font.family
     font.pixelSize: Style.font.subtitle
     font.bold: true

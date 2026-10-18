@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Upscayl's left pane: title, the Upscayl / Settings tabs and their content.
@@ -37,7 +38,7 @@ Rectangle {
         Text {
           textFormat: Text.PlainText
           text: "Omascayl"
-          color: Color.foreground
+          color: Commons.Color.foreground
           font.family: Style.font.family
           font.pixelSize: Style.font.display
           font.bold: true
@@ -45,7 +46,7 @@ Rectangle {
         Text {
           textFormat: Text.PlainText
           text: "AI Image Upscaler"
-          color: Util.alpha(Color.foreground, 0.6)
+          color: Util.alpha(Commons.Color.foreground, 0.6)
           font.family: Style.font.family
           font.pixelSize: Style.font.bodySmall
         }
@@ -79,7 +80,7 @@ Rectangle {
       contentItem: Rectangle {
         implicitWidth: Style.space(4)
         radius: width / 2
-        color: Util.alpha(Color.foreground, 0.35)
+        color: Util.alpha(Commons.Color.foreground, 0.35)
       }
     }
 

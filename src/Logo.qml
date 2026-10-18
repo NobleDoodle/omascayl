@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // Three squares growing toward the top right: a small pixel becoming a large
 // one. Drawn in the theme accent so the mark follows Omarchy themes; the
@@ -8,7 +9,7 @@ Canvas {
   id: root
 
   property real size: 32
-  property color tint: Color.accent
+  property color tint: Commons.Color.accent
 
   width: size
   height: size

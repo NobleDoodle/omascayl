@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Core.js" as Core
 
@@ -11,7 +12,7 @@ Column {
   required property var app
   readonly property var settings: app.settings
   readonly property bool busy: app.upscaler.running
-  readonly property color muted: Util.alpha(Color.foreground, 0.62)
+  readonly property color muted: Util.alpha(Commons.Color.foreground, 0.62)
 
   spacing: Style.spacing.huge
 
@@ -94,7 +95,7 @@ Column {
       Text {
         textFormat: Text.PlainText
         text: "Image Scale (" + root.settings.scale + "X)" + (root.settings.useCustomWidth ? "  DISABLED" : "")
-        color: Color.foreground
+        color: Commons.Color.foreground
         font.family: Style.font.family
         font.pixelSize: Style.font.body
         font.bold: true
@@ -128,7 +129,7 @@ Column {
         width: parent.width
         visible: !root.settings.useCustomWidth && parseInt(root.settings.scale) >= 6
         text: "This may cause performance issues on some devices!"
-        color: Color.urgent
+        color: Commons.Color.urgent
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
         font.bold: true
@@ -180,7 +181,7 @@ Column {
         ? "Upscayl from " + root.app.inputWidth + "x" + root.app.inputHeight
           + " to " + root.app.targetSize.width + "x" + root.app.targetSize.height
         : ""
-      color: Color.foreground
+      color: Commons.Color.foreground
       font.family: Style.font.family
       font.pixelSize: Style.font.body
       wrapMode: Text.WordWrap
@@ -194,8 +195,8 @@ Column {
       fontSize: Style.font.title
       bordered: true
       enabled: !root.busy
-      background: root.busy ? "transparent" : Color.accent
-      foreground: root.busy ? Color.foreground : Color.background
+      background: root.busy ? "transparent" : Commons.Color.accent
+      foreground: root.busy ? Commons.Color.foreground : Commons.Color.background
       onClicked: root.app.upscayl()
     }
 

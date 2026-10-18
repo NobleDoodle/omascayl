@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Core.js" as Core
 
@@ -12,7 +13,7 @@ Item {
   required property var app
   readonly property var settings: app.settings
   readonly property var upscaler: app.upscaler
-  readonly property color muted: Util.alpha(Color.foreground, 0.62)
+  readonly property color muted: Util.alpha(Commons.Color.foreground, 0.62)
 
   readonly property alias compare: compare
   readonly property bool hasImage:!app.batchMode && app.imagePath !== ""
@@ -28,7 +29,7 @@ Item {
     width: Math.min(implicitWidth, root.width - 4 * Style.spacing.huge)
     horizontalAlignment: Text.AlignHCenter
     wrapMode: Text.WordWrap
-    color: Color.foreground
+    color: Commons.Color.foreground
     font.family: Style.font.family
     font.pixelSize: Style.font.body
   }
@@ -42,7 +43,7 @@ Item {
     Logo {
       anchors.horizontalCenter: parent.horizontalCenter
       size: 72
-      tint: Util.alpha(Color.accent, root.app.batchMode && root.app.batchFolderPath ? 1 : 0.8)
+      tint: Util.alpha(Commons.Color.accent, root.app.batchMode && root.app.batchFolderPath ? 1 : 0.8)
     }
 
     // Nothing selected yet.
@@ -140,7 +141,7 @@ Item {
       visible: root.hasResult
       width: zoomRow.implicitWidth + 2 * Style.spacing.md
       height: Style.spacing.controlHeight
-      color: Color.background
+      color: Commons.Color.background
       radius: Style.cornerRadius
       border.width: Style.normalBorderWidth
       border.color: Style.normalBorderColor
@@ -153,7 +154,7 @@ Item {
           textFormat: Text.PlainText
           anchors.verticalCenter: parent.verticalCenter
           text: "Zoom " + root.settings.zoom + "%"
-          color: Color.foreground
+          color: Commons.Color.foreground
           font.family: Style.font.family
           font.pixelSize: Style.font.bodySmall
         }
@@ -172,7 +173,7 @@ Item {
 
     Button {
       bordered: true
-      background: Color.background
+      background: Commons.Color.background
       text: "Reset Image"
       onClicked: root.app.resetImage()
     }
@@ -243,10 +244,10 @@ Item {
     anchors.margins: Style.spacing.huge
     visible: !root.app.backendFound
     height: Math.max(missing.implicitHeight, setupButton.height) + 2 * Style.spacing.lg
-    color: Util.alpha(Color.urgent, 0.15)
+    color: Util.alpha(Commons.Color.urgent, 0.15)
     radius: Style.cornerRadius
     border.width: 1
-    border.color: Color.urgent
+    border.color: Commons.Color.urgent
 
     Text {
       textFormat: Text.PlainText
@@ -256,7 +257,7 @@ Item {
       anchors.verticalCenter: parent.verticalCenter
       anchors.margins: Style.spacing.lg
       wrapMode: Text.WordWrap
-      color: Color.foreground
+      color: Commons.Color.foreground
       font.family: Style.font.family
       font.pixelSize: Style.font.body
       text: "Upscayl's engine and models aren't installed yet, so nothing can be upscayled."

@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // "Doing the Upscayl magic..." card over the viewer while upscayl-bin runs.
@@ -9,7 +10,7 @@ Rectangle {
   required property var app
   readonly property var upscaler: app.upscaler
 
-  color: Util.alpha(Color.background, 0.72)
+  color: Util.alpha(Commons.Color.background, 0.72)
 
   // Swallow clicks so the image underneath can't be dragged mid-run.
   MouseArea { anchors.fill: parent; hoverEnabled: true }
@@ -27,10 +28,10 @@ Rectangle {
     anchors.centerIn: parent
     width: Math.min(parent.width - 4 * Style.spacing.huge, Style.space(420))
     height: card.implicitHeight + 2 * Style.spacing.popupPadding
-    color: Color.popups.background
+    color: Commons.Color.popups.background
     radius: Style.cornerRadius
     border.width: Math.max(1, Style.normalBorderWidth)
-    border.color: Color.popups.border
+    border.color: Commons.Color.popups.border
 
     Column {
       id: card
@@ -56,7 +57,7 @@ Rectangle {
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.WordWrap
         text: root.headline
-        color: Color.popups.text
+        color: Commons.Color.popups.text
         font.family: Style.font.family
         font.pixelSize: Style.font.title
         font.bold: true
@@ -72,7 +73,7 @@ Rectangle {
           height: parent.height
           radius: parent.radius
           width: parent.width * root.upscaler.overall
-          color: Color.accent
+          color: Commons.Color.accent
           Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         }
       }
@@ -82,7 +83,7 @@ Rectangle {
         width: parent.width
         horizontalAlignment: Text.AlignHCenter
         text: root.detail
-        color: Util.alpha(Color.popups.text, 0.7)
+        color: Util.alpha(Commons.Color.popups.text, 0.7)
         font.family: Style.font.family
         font.pixelSize: Style.font.body
       }
@@ -91,7 +92,7 @@ Rectangle {
         anchors.horizontalCenter: parent.horizontalCenter
         bordered: true
         text: "STOP"
-        foreground: Color.urgent
+        foreground: Commons.Color.urgent
         onClicked: root.app.stop()
       }
     }

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Core.js" as Core
 
@@ -12,7 +13,7 @@ Column {
   required property var app
   readonly property var settings: app.settings
   readonly property var upscaler: app.upscaler
-  readonly property color muted: Util.alpha(Color.foreground, 0.62)
+  readonly property color muted: Util.alpha(Commons.Color.foreground, 0.62)
 
   spacing: Style.spacing.huge
 
@@ -256,8 +257,8 @@ Column {
         width: parent ? parent.width : 0
         wrapMode: Text.WordWrap
         textFormat: Text.PlainText
-        color: modelData.state === "ok" ? Color.foreground
-             : modelData.need === "required" ? Color.urgent : root.muted
+        color: modelData.state === "ok" ? Commons.Color.foreground
+             : modelData.need === "required" ? Commons.Color.urgent : root.muted
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
         text: (modelData.state === "ok" ? "✓ " : "✗ ") + modelData.label

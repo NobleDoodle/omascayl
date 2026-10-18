@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // Before/after viewer. Upscayl 2.x offers the same two modes:
 //   slider - original on the left, result on the right of a draggable divider;
@@ -90,7 +91,7 @@ Item {
     visible: root.afterSource !== "" && after.status !== Image.Ready
     width: note.implicitWidth + 2 * Style.spacing.xxl
     height: note.implicitHeight + 2 * Style.spacing.lg
-    color: Util.alpha(Color.background, 0.85)
+    color: Util.alpha(Commons.Color.background, 0.85)
     radius: Style.cornerRadius
     border.width: 1
     border.color: Style.normalBorderColor
@@ -99,7 +100,7 @@ Item {
       textFormat: Text.PlainText
       id: note
       anchors.centerIn: parent
-      color: Color.foreground
+      color: Commons.Color.foreground
       font.family: Style.font.family
       font.pixelSize: Style.font.body
       text: after.status === Image.Error
@@ -121,7 +122,7 @@ Item {
       anchors.horizontalCenter: parent.horizontalCenter
       width: Math.max(2, Style.space(2))
       height: parent.height
-      color: Color.accent
+      color: Commons.Color.accent
     }
 
     Rectangle {
@@ -130,15 +131,15 @@ Item {
       width: Style.space(30)
       height: width
       radius: Style.cornerRadius > 0 ? width / 2 : 0
-      color: Color.background
+      color: Commons.Color.background
       border.width: Math.max(2, Style.space(2))
-      border.color: Color.accent
+      border.color: Commons.Color.accent
 
       Text {
         textFormat: Text.PlainText
         anchors.centerIn: parent
         text: "◀▶"
-        color: Color.accent
+        color: Commons.Color.accent
         font.pixelSize: Style.font.caption
       }
     }
@@ -149,14 +150,14 @@ Item {
     width: label.implicitWidth + 2 * Style.spacing.md
     height: label.implicitHeight + 2 * Style.spacing.xs
     radius: Style.cornerRadius
-    color: Util.alpha(Color.background, 0.8)
+    color: Util.alpha(Commons.Color.background, 0.8)
     border.width: 1
     border.color: Style.normalBorderColor
     Text {
       textFormat: Text.PlainText
       id: label
       anchors.centerIn: parent
-      color: Color.foreground
+      color: Commons.Color.foreground
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
       font.bold: true
@@ -192,9 +193,9 @@ Item {
     height: Style.space(220)
     x: Math.round(root.pointer.x - width / 2)
     y: Math.round(root.pointer.y - height / 2)
-    color: Color.background
+    color: Commons.Color.background
     border.width: Math.max(2, Style.space(2))
-    border.color: Color.accent
+    border.color: Commons.Color.accent
     radius: Style.cornerRadius
 
     Item {
@@ -236,7 +237,7 @@ Item {
       x: lens.half - width / 2
       width: Math.max(2, Style.space(2))
       height: lens.height
-      color: Color.accent
+      color: Commons.Color.accent
     }
 
     Chip { x: Style.spacing.sm; anchors.bottom: parent.bottom; anchors.bottomMargin: Style.spacing.sm; text: "Original" }

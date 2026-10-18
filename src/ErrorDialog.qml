@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Modal error card (Upscayl's error toasts carry a "Copy Error" action; this
@@ -11,7 +12,7 @@ Rectangle {
   required property var app
 
   visible: app.error !== null
-  color: Util.alpha(Color.background, 0.6)
+  color: Util.alpha(Commons.Color.background, 0.6)
 
   MouseArea {
     anchors.fill: parent
@@ -23,10 +24,10 @@ Rectangle {
     anchors.centerIn: parent
     width: Math.min(parent.width - 4 * Style.spacing.huge, Style.space(520))
     height: Math.min(parent.height - 4 * Style.spacing.huge, body.implicitHeight + 2 * Style.spacing.popupPadding)
-    color: Color.popups.background
+    color: Commons.Color.popups.background
     radius: Style.cornerRadius
     border.width: Math.max(1, Style.normalBorderWidth)
-    border.color: Color.urgent
+    border.color: Commons.Color.urgent
 
     // Clicks on the card must not fall through to the dismiss layer.
     MouseArea { anchors.fill: parent }
@@ -41,7 +42,7 @@ Rectangle {
         textFormat: Text.PlainText
         width: parent.width
         text: root.app.error ? root.app.error.title : ""
-        color: Color.urgent
+        color: Commons.Color.urgent
         font.family: Style.font.family
         font.pixelSize: Style.font.heading
         font.bold: true
@@ -55,7 +56,7 @@ Rectangle {
         selectByMouse: true
         wrapMode: TextEdit.Wrap
         text: root.app.error ? root.app.error.description : ""
-        color: Color.popups.text
+        color: Commons.Color.popups.text
         selectionColor: Style.selectionFill
         font.family: Style.font.family
         font.pixelSize: Style.font.body
