@@ -94,6 +94,7 @@ printf '%s\n' "\$@" > "$E/pick.\$\$.args"
 exit "\${FAKE_PICK_RC:-0}"
 EOF
 chmod +x "$E/tools/omascayl-pick"
+ln -s "$W/bin/omascayl-preview" "$W/bin/omascayl_fs.py" "$E/tools/"
 touch "$E/models/my-model-2x.param" "$E/models/my-model-2x.bin"
 pick_args() { cat "$E"/pick.*.args 2>/dev/null | paste -sd'|'; }
 pick() {  # name state rc path [env...]
@@ -151,6 +152,7 @@ sed -i 's/^missing/ok/' "$E/deps.txt"
 date +%s > "\$OMASCAYL_STATE_DIR/setup-finished"
 EOF
 chmod +x "$E/deptools/"* "$E/omarchy/bin/omarchy"
+ln -s "$W/bin/omascayl-preview" "$W/bin/omascayl_fs.py" "$E/deptools/"
 deps_ok=$'ok\tbackend\trequired\tUpscayl engine and models\t-\tx\nok\tvulkan\trequired\tVulkan GPU driver\t-\tx'
 deps_req=$'missing\tbackend\trequired\tUpscayl engine and models\tupscayl-bin\tx\nok\tvulkan\trequired\tVulkan GPU driver\t-\tx'
 deps_rec=$'ok\tbackend\trequired\tUpscayl engine and models\t-\tx\nmissing\tclipboard\trecommended\tClipboard\twl-clipboard\tx'
@@ -183,6 +185,41 @@ check "and says so" '.toast | test("Everything Omascayl needs is installed")' de
 
 drun deps-upscayl 3000 "{\"image\":\"$E/rose.png\",\"noDepsPrompt\":true,\"run\":true}" "$deps_req" OMASCAYL_BIN=/nonexistent/upscayl-bin
 check "Upscayl without a backend offers setup instead of failing" '.depsPromptOpen == true and .error == null and .running == false' deps-upscayl
+
+# Marketplace report (#12026): a 1x1 PNG whose compressed text chunks Qt
+# and libpng would inflate and keep inside the shell (20 chunks of ~7.9 MB).
+# The window shows bin/omascayl-preview's copy instead, as input and as an
+# existing result, so the app's peak memory stays at its usual level.
+/usr/bin/python3 -I - "$E/bomb.png" <<'PY'
+import struct, sys, zlib
+def chunk(kind, data):
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+text = zlib.compress(b"A" * 7_900_000, 9)
+parts = [b"\x89PNG\r\n\x1a\n", chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))]
+parts += [chunk(b"zTXt", b"Comment%d\0\0" % i + text) for i in range(20)]
+parts += [chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00")), chunk(b"IEND", b"")]
+open(sys.argv[1], "wb").write(b"".join(parts))
+PY
+peak_mb() {  # name delay state: run like `run`, print the app's peak RSS in MB
+  local name=$1 delay=$2 state=$3
+  echo "== $name" >&2
+  /usr/bin/python3 -I -c '
+import resource, subprocess, sys
+subprocess.run(sys.argv[1:], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+print(int(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024))
+' tests/snapshot.sh "$E/$name.png" "$state" OMASCAYL_SNAPSHOT_DELAY="$delay"
+}
+base_mb=$(peak_mb plain-image 2500 "{\"image\":\"$E/rose.png\"}")
+bomb_mb=$(peak_mb bomb-image 2500 "{\"image\":\"$E/bomb.png\"}")
+check "a PNG full of compressed text is shown from its clean copy" ".image == \"$E/bomb.png\" and .inputSize == [1,1] and .error == null" bomb-image
+(( bomb_mb < base_mb + 100 )) && check "without the shell inflating it (${bomb_mb} MB vs ${base_mb} MB)" true bomb-image \
+  || check "without the shell inflating it (${bomb_mb} MB vs ${base_mb} MB)" false bomb-image
+result_mb=$(peak_mb bomb-result 2500 "{\"image\":\"$E/rose.png\",\"result\":\"$E/bomb.png\"}")
+(( result_mb < base_mb + 100 )) && check "and the same as an existing result (${result_mb} MB)" true bomb-result \
+  || check "and the same as an existing result (${result_mb} MB)" false bomb-result
+printf 'not an image' > "$E/fake.png"
+run fake-image 2500 "{\"image\":\"$E/fake.png\"}"
+check "a file that only has an image name is refused" '.image == "" and (.error.description | test("not a PNG, JPEG or WebP"))' fake-image
 
 echo "passed $pass, failed $fail"
 [[ $fail == 0 ]]

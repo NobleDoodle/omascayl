@@ -145,8 +145,9 @@ Omascayl runs inside `omarchy-shell`, and part of it runs on every shell start w
 - **Unattended writes can't be redirected.** `bin/omascayl-integrate` (run at every shell start) and the launcher it leaves behind write and delete only through directory handles. Those handles are opened without following symlinks and checked to be yours. New files go through a random `O_EXCL|O_NOFOLLOW` temporary that is fsynced and renamed into place (`bin/omascayl_fs.py`). Nothing uses a predictable temporary or lock name, or `/tmp`. Reads are size-limited and never block on a FIFO, and that includes the settings file.
 - **The setup asks first, and its package list is fixed.** `bin/omascayl-setup` runs in a terminal and installs only after you answer "Proceed? [Y/n]". The only names it ever passes to `sudo pacman` come from a fixed list in the script, after `--`. The engine and models are pinned by SHA-256. `bin/omascayl-store` checks them again on the bytes it copies into place, so a file changed after the check can't get in.
 - **Text shown is plain text.** File names, error output and clipboard contents are never rendered as rich text.
+- **Images are never decoded from the file you pick.** An image from someone else can carry metadata that Qt's codecs inflate and keep in memory: a 150 KB PNG of compressed text chunks costs the shell over 1.6 GB. So `bin/omascayl-preview` checks each image in its own process, taking its type from the bytes, not the name. It writes a copy into `~/.cache/omascayl/preview` that holds only the picture data, without text, color-profile, EXIF or animation chunks, and the window displays only that copy. It does this for the selected image and for results, including an existing result that is reused.
 
-Each of these has a test that plants the symlink, FIFO or package name in question (`tests/integrate.sh`, `tests/setup.sh`, `tests/picker.sh`).
+Each of these has a test that plants the symlink, FIFO, package name or image in question (`tests/integrate.sh`, `tests/setup.sh`, `tests/picker.sh`, `tests/preview.sh`).
 
 ## Tests
 
@@ -157,6 +158,7 @@ tests/snapshot.sh out.png '{"tab":"settings"}'   # render one screen offscreen
 tests/picker.sh        # bin/omascayl-pick against a mock portal on a sealed private bus
 tests/integrate.sh     # the plugin's launcher entry, icon and command, in a scratch HOME
 tests/setup.sh         # bin/omascayl-setup with a fake sudo and a local mirror; nothing real is installed
+tests/preview.sh       # bin/omascayl-preview on real PNG/JPEG/WebP variants and crafted files (needs ImageMagick)
 ```
 
 ## License

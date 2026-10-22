@@ -27,7 +27,6 @@ FloatingWindow {
     if (s.batch) app.setBatchFolder(s.batch)
     if (s.image) app.setImage(s.image, false)
     if (s.result) {
-      app.resultRevision += 1
       app.upscaledImagePath = s.result
       app.resultSize = s.resultSize || null
     }

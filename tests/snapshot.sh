@@ -17,6 +17,10 @@ work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 mkdir -p "$work/config" "$work/state" "$work/cache"
 for f in "$root"/src/*; do ln -s -- "$f" "$work/config/"; done
+# The window only ever displays bin/omascayl-preview's copies, so every run has
+# that helper; the other tools stay out unless a test passes OMASCAYL_TOOLS.
+mkdir -p "$work/tools"
+ln -s -- "$root/bin/omascayl-preview" "$root/bin/omascayl_fs.py" "$work/tools/"
 
 # The app runs every tool by absolute path (Core.BIN, /usr/bin/), never through
 # PATH. A test that needs fake tools passes OMASCAYL_TEST_FAKEBIN: this run
@@ -53,7 +57,7 @@ env -u WAYLAND_DISPLAY -u DISPLAY \
   OMASCAYL_BIN="${OMASCAYL_BIN:-${backend[0]}}" \
   OMASCAYL_MODELS="${OMASCAYL_MODELS:-${backend[1]}}" \
   OMASCAYL_SNAPSHOT="$out" OMASCAYL_SNAPSHOT_STATE="$state" \
-  OMASCAYL_TOOLS="${OMASCAYL_TOOLS:-$work/no-tools}" \
+  OMASCAYL_TOOLS="${OMASCAYL_TOOLS:-$work/tools}" \
   OMARCHY_PATH="$work/fake-omarchy" \
   "$@" \
   timeout 60 qs -p "$work/config"

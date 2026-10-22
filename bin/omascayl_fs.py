@@ -44,7 +44,10 @@ def sub_dir(parent, parts, create):
                 os.close(fd)
                 raise
             try:
-                os.mkdir(part, 0o755, dir_fd=fd)
+                try:
+                    os.mkdir(part, 0o755, dir_fd=fd)
+                except FileExistsError:
+                    pass                # made meanwhile by another helper run
                 nxt = os.open(part, DIR_FLAGS, dir_fd=fd)
             except OSError:
                 os.close(fd)

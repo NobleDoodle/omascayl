@@ -1,0 +1,325 @@
+#!/usr/bin/python3 -IB
+"""Make the copy of an image that Omascayl's window displays.
+
+    omascayl-preview before|after IMAGE CACHE_DIR
+
+Prints "PATH<TAB>WIDTH<TAB>HEIGHT<TAB>FORMAT" and exits 0, or prints the
+reason to stderr and exits 1 when IMAGE is not a usable PNG, JPEG or WebP
+(2 for a usage or I/O error).
+
+The window runs inside omarchy-shell, so it must never decode a file it was
+handed: an image from someone else can carry metadata that Qt and its codecs
+inflate and keep in the shell's memory before any size check (a few hundred
+KB of compressed PNG text chunks grow to gigabytes). This runs as its own
+process, decompresses nothing, and writes a copy that holds only what draws
+the picture, under CACHE_DIR/preview/<slot>-<random>.<ext>:
+
+- PNG:  IHDR, PLTE, tRNS, IDAT and IEND, plus fixed-size gAMA, cHRM and sRGB.
+        No text, iCCP, eXIf or animation chunks, nor anything unknown.
+- JPEG: the frame and table segments up to the first scan, then the scan data
+        as it is. APP1..APP13, APP15 and comments (EXIF, ICC, XMP) are dropped.
+- WebP: one VP8 or VP8L image (with its ALPH); ICCP, EXIF and XMP are dropped;
+        animations are refused.
+
+The type is taken from the bytes, never the file name, and the copy is what
+the shell loads, so a file swapped after this check is never read there.
+Older copies of the same slot are removed.
+"""
+
+import os
+import secrets
+import stat
+import struct
+import sys
+
+os.environ["PATH"] = "/usr/bin:/usr/share/omarchy/bin"
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import omascayl_fs as fs  # noqa: E402
+
+MAX_FILE = 1 << 30            # 1 GiB, larger than any image worth previewing
+MAX_SIDE = 1 << 20            # per spec PNG allows 2^31; nothing real is this wide
+COPY = 1 << 20
+SLOTS = ("before", "after")
+
+
+class Unusable(Exception):
+    """The file is not an image Omascayl can show."""
+
+
+class Source:
+    """Bounded reads from an already opened regular file."""
+
+    def __init__(self, fd, size):
+        self.fd, self.left = fd, size
+
+    def read(self, n):
+        if n > self.left:
+            raise Unusable("the file ends early")
+        out = bytearray()
+        while len(out) < n:
+            part = os.read(self.fd, min(n - len(out), COPY))
+            if not part:
+                raise Unusable("the file ends early")
+            out += part
+        self.left -= n
+        return bytes(out)
+
+    def copy_to(self, out, n):
+        while n:
+            part = self.read(min(n, COPY))
+            out.write(part)
+            n -= len(part)
+
+    def copy_rest(self, out):
+        self.copy_to(out, self.left)
+
+
+class Sink:
+    """Writes to the new copy, counting bytes."""
+
+    def __init__(self, fd):
+        self.fd, self.size = fd, 0
+
+    def write(self, data):
+        view = memoryview(data)
+        while view:
+            view = view[os.write(self.fd, view):]
+        self.size += len(data)
+
+
+# ---- PNG ----------------------------------------------------------------------------
+PNG_SIG = b"\x89PNG\r\n\x1a\n"
+PNG_KEEP = {b"IHDR", b"PLTE", b"tRNS", b"IDAT", b"IEND"}
+PNG_FIXED = {b"gAMA": 4, b"cHRM": 32, b"sRGB": 1}
+PNG_DEPTHS = {0: (1, 2, 4, 8, 16), 2: (8, 16), 3: (1, 2, 4, 8), 4: (8, 16), 6: (8, 16)}
+
+
+def png(src, out):
+    if src.read(8) != PNG_SIG:
+        raise Unusable("not a PNG")
+    out.write(PNG_SIG)
+    size, seen_idat, first = None, False, True
+    while True:
+        length, kind = struct.unpack(">I4s", src.read(8))
+        if length > 0x7FFFFFFF or not kind.isalpha():
+            raise Unusable("a damaged PNG chunk")
+        if first and kind != b"IHDR":
+            raise Unusable("a PNG without a header")
+        first = False
+        if kind == b"IHDR":
+            if size or length != 13:
+                raise Unusable("a damaged PNG header")
+            data = src.read(13)
+            w, h, depth, color, comp, filt, interlace = struct.unpack(">IIBBBBB", data)
+            if not (0 < w <= MAX_SIDE and 0 < h <= MAX_SIDE) or depth not in PNG_DEPTHS.get(color, ()) \
+                    or comp or filt or interlace > 1:
+                raise Unusable("a PNG with an unsupported header")
+            size = (w, h)
+            out.write(struct.pack(">I4s", 13, kind) + data + src.read(4))
+            continue
+        keep = kind in PNG_KEEP or PNG_FIXED.get(kind) == length
+        if not keep and not kind[0:1].islower():
+            raise Unusable("a PNG with an unknown critical chunk")
+        if keep:
+            out.write(struct.pack(">I4s", length, kind))
+            src.copy_to(out, length + 4)        # data and CRC; libpng checks the CRC
+        else:
+            skip(src, length + 4)
+        if kind == b"IDAT":
+            seen_idat = True
+        if kind == b"IEND":
+            break
+    if not seen_idat:
+        raise Unusable("a PNG without image data")
+    return size, "png"
+
+
+def skip(src, n):
+    while n:
+        n -= len(src.read(min(n, COPY)))
+
+
+# ---- JPEG ---------------------------------------------------------------------------
+JPEG_SOF = set(range(0xC0, 0xD0)) - {0xC4, 0xC8, 0xCC}
+JPEG_KEEP = {0xC4, 0xCC, 0xDB, 0xDD} | JPEG_SOF
+
+
+def jpeg(src, out):
+    if src.read(2) != b"\xff\xd8":
+        raise Unusable("not a JPEG")
+    out.write(b"\xff\xd8")
+    size = None
+    while True:
+        if src.read(1) != b"\xff":
+            raise Unusable("a damaged JPEG marker")
+        marker = src.read(1)[0]
+        while marker == 0xFF:                   # fill bytes
+            marker = src.read(1)[0]
+        if marker in (0x00, 0x01, 0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
+            raise Unusable("a damaged JPEG before the image data")
+        (length,) = struct.unpack(">H", src.read(2))
+        if length < 2:
+            raise Unusable("a damaged JPEG segment")
+        data = src.read(length - 2)
+        if marker in JPEG_SOF and size is None:
+            if len(data) < 6:
+                raise Unusable("a damaged JPEG frame header")
+            h, w = struct.unpack(">HH", data[1:5])
+            if not (w and h):
+                raise Unusable("a JPEG without a size")
+            size = (w, h)
+        keep = marker in JPEG_KEEP or marker == 0xDA \
+            or (marker == 0xE0 and data[:5] in (b"JFIF\0", b"JFXX\0")) \
+            or (marker == 0xEE and data[:5] == b"Adobe")
+        if not keep and not (0xE0 <= marker <= 0xEF or marker == 0xFE):
+            raise Unusable("a JPEG with an unsupported segment")
+        if keep:
+            out.write(bytes((0xFF, marker)) + struct.pack(">H", length) + data)
+        if marker == 0xDA:
+            if size is None:
+                raise Unusable("a JPEG without a frame header")
+            # Entropy-coded data (and any later scans) as it is: plain data,
+            # nothing in it is inflated.
+            src.copy_rest(out)
+            return size, "jpg"
+
+
+# ---- WebP ---------------------------------------------------------------------------
+def webp(src, out):
+    head = src.read(12)
+    if head[:4] != b"RIFF" or head[8:] != b"WEBP":
+        raise Unusable("not a WebP")
+    riff_left = struct.unpack("<I", head[4:8])[0] - 4
+    if riff_left > src.left:
+        raise Unusable("a damaged WebP")
+    vp8x, alph, image, size = None, None, None, None
+    while riff_left >= 8 and image is None:
+        kind, length = struct.unpack("<4sI", src.read(8))
+        padded = length + (length & 1)
+        if padded > riff_left - 8:
+            raise Unusable("a damaged WebP chunk")
+        riff_left -= 8 + padded
+        if kind == b"VP8X":
+            if length != 10 or vp8x is not None:
+                raise Unusable("a damaged WebP header")
+            vp8x = bytearray(src.read(10))
+            if vp8x[0] & 0x02:
+                raise Unusable("an animated WebP")
+            w = 1 + int.from_bytes(vp8x[4:7], "little")
+            h = 1 + int.from_bytes(vp8x[7:10], "little")
+            size = (w, h)
+        elif kind == b"ALPH":
+            alph = (length, src.read(padded))   # alpha is at most a few MB, as the image
+        elif kind in (b"VP8 ", b"VP8L"):
+            image = (kind, length, padded)
+        elif kind in (b"ANIM", b"ANMF"):
+            raise Unusable("an animated WebP")
+        else:
+            skip(src, padded)                   # ICCP, EXIF, XMP, unknown
+    if image is None:
+        raise Unusable("a WebP without image data")
+    kind, length, padded = image
+    first = src.read(min(length, 10))
+    if kind == b"VP8 ":
+        if len(first) < 10 or first[3:6] != b"\x9d\x01\x2a":
+            raise Unusable("a damaged WebP image")
+        own = (struct.unpack("<H", first[6:8])[0] & 0x3FFF, struct.unpack("<H", first[8:10])[0] & 0x3FFF)
+    else:
+        if len(first) < 5 or first[0] != 0x2F:
+            raise Unusable("a damaged WebP image")
+        bits = int.from_bytes(first[1:5], "little")
+        own = ((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1)
+    size = size or own
+    if not (size[0] and size[1]):
+        raise Unusable("a WebP without a size")
+    chunks = 8 + padded
+    if vp8x is not None:
+        vp8x[0] &= 0x10                         # keep only the alpha flag
+        chunks += 18
+        if alph:
+            chunks += 8 + len(alph[1])
+    out.write(b"RIFF" + struct.pack("<I", 4 + chunks) + b"WEBP")
+    if vp8x is not None:
+        out.write(b"VP8X" + struct.pack("<I", 10) + bytes(vp8x))
+        if alph:
+            out.write(b"ALPH" + struct.pack("<I", alph[0]) + alph[1])
+    out.write(kind + struct.pack("<I", length) + first)
+    src.copy_to(out, padded - len(first))
+    return size, "webp"
+
+
+# ---- main -----------------------------------------------------------------------------
+def make_preview(slot, image, cache_dir):
+    try:
+        fd = os.open(image, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError as e:
+        raise Unusable("it can't be opened (%s)" % e.strerror)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise Unusable("it is not a regular file")
+        if st.st_size > MAX_FILE:
+            raise Unusable("it is larger than 1 GB")
+        magic = os.pread(fd, 12, 0)
+        if magic[:8] == PNG_SIG:
+            parse = png
+        elif magic[:3] == b"\xff\xd8\xff":
+            parse = jpeg
+        elif magic[:4] == b"RIFF" and magic[8:12] == b"WEBP":
+            parse = webp
+        else:
+            raise Unusable("it is not a PNG, JPEG or WebP image")
+
+        # The app creates its cache folder as it starts; an image opened at once
+        # can get here first. Ownership and no-follow checks still apply below.
+        os.makedirs(cache_dir, 0o700, exist_ok=True)
+        cache = fs.base_dir(cache_dir)
+        try:
+            folder = fs.sub_dir(cache, ["preview"], True)
+        finally:
+            os.close(cache)
+        try:
+            name = "%s-%s" % (slot, secrets.token_hex(8))
+            tmp = "." + name
+            out_fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             0o600, dir_fd=folder)
+            try:
+                size, ext = parse(Source(fd, st.st_size), Sink(out_fd))
+            except BaseException:
+                os.close(out_fd)
+                os.unlink(tmp, dir_fd=folder)
+                raise
+            os.close(out_fd)
+            final = "%s.%s" % (name, ext)
+            os.rename(tmp, final, src_dir_fd=folder, dst_dir_fd=folder)
+            for old in os.listdir(folder):
+                if old != final and (old.startswith(slot + "-") or old.startswith("." + slot + "-")):
+                    try:
+                        os.unlink(old, dir_fd=folder)
+                    except OSError:
+                        pass
+        finally:
+            os.close(folder)
+        return os.path.join(cache_dir, "preview", final), size, ext
+    finally:
+        os.close(fd)
+
+
+def main(argv):
+    if len(argv) != 4 or argv[1] not in SLOTS or not os.path.isabs(argv[2]) or not os.path.isabs(argv[3]):
+        print("usage: omascayl-preview before|after IMAGE CACHE_DIR", file=sys.stderr)
+        return 2
+    try:
+        path, (w, h), ext = make_preview(argv[1], argv[2], argv[3])
+    except Unusable as e:
+        print("This image can't be opened: %s." % e, file=sys.stderr)
+        return 1
+    except (OSError, struct.error, IndexError) as e:
+        print("omascayl-preview: %s" % e, file=sys.stderr)
+        return 2
+    print("%s\t%d\t%d\t%s" % (path, w, h, ext))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

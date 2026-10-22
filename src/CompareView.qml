@@ -17,11 +17,22 @@ Item {
   property real zoom: 1
   property real split: 0.5
 
-  // Large results are decoded down to this box for display; the file on disk
+  // Large images are decoded down to this box for display; the file on disk
   // keeps its full size. The lens shares the same decoded texture.
-  readonly property size previewLimit: Qt.size(8192, 8192)
+  readonly property int previewLimit: 8192
+  // The images' real sizes (from bin/omascayl-preview). sourceSize must not
+  // exceed them: Qt scales a smaller image *up* to fill sourceSize.
+  property size beforeSize: Qt.size(0, 0)
+  property size afterSize: Qt.size(0, 0)
 
-  signal beforeLoaded(int width, int height)
+  function decodeSize(s) {
+    if (!(s.width > 0 && s.height > 0)) return Qt.size(1, 1)
+    var k = Math.min(1, previewLimit / s.width, previewLimit / s.height)
+    return Qt.size(Math.max(1, Math.round(s.width * k)), Math.max(1, Math.round(s.height * k)))
+  }
+
+  // bin/omascayl-preview refused the result, so there is nothing to show.
+  property bool afterFailed: false
 
   clip: true
 
@@ -43,6 +54,7 @@ Item {
     id: before
     anchors.fill: parent
     source: root.beforeSource
+    sourceSize: root.decodeSize(root.beforeSize)
     fillMode: Image.PreserveAspectFit
     asynchronous: true
     smooth: true
@@ -54,7 +66,6 @@ Item {
       xScale: root.zoomNow
       yScale: root.zoomNow
     }
-    onStatusChanged: if (status === Image.Ready) root.beforeLoaded(implicitWidth, implicitHeight)
   }
 
   Item {
@@ -71,7 +82,7 @@ Item {
       width: root.width
       height: root.height
       source: root.afterSource
-      sourceSize: root.previewLimit
+      sourceSize: root.decodeSize(root.afterSize)
       fillMode: Image.PreserveAspectFit
       asynchronous: true
       smooth: true
@@ -88,7 +99,7 @@ Item {
   // Loading / failure notes for the result.
   Rectangle {
     anchors.centerIn: parent
-    visible: root.afterSource !== "" && after.status !== Image.Ready
+    visible: root.afterFailed || (root.afterSource !== "" && after.status !== Image.Ready)
     width: note.implicitWidth + 2 * Style.spacing.xxl
     height: note.implicitHeight + 2 * Style.spacing.lg
     color: Util.alpha(Commons.Color.background, 0.85)
@@ -103,7 +114,9 @@ Item {
       color: Commons.Color.foreground
       font.family: Style.font.family
       font.pixelSize: Style.font.body
-      text: after.status === Image.Error
+      text: root.afterFailed
+        ? "The upscayled image can't be previewed here. Use Open Image."
+        : after.status === Image.Error
         ? "The upscayled image is too large to preview here. Use Open Image."
         : "Loading the upscayled image..."
     }
@@ -206,6 +219,7 @@ Item {
       clip: true
       Image {
         source: root.beforeSource
+        sourceSize: root.decodeSize(root.beforeSize)
         x: lens.half - lens.fx * lens.bigW - parent.x
         y: lens.height / 2 - lens.fy * lens.bigH - parent.y
         width: lens.bigW
@@ -223,7 +237,7 @@ Item {
       clip: true
       Image {
         source: root.afterSource
-        sourceSize: root.previewLimit
+        sourceSize: root.decodeSize(root.afterSize)
         x: -lens.fx * lens.bigW
         y: lens.height / 2 - lens.fy * lens.bigH - parent.y
         width: lens.bigW

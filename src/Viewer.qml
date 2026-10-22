@@ -18,8 +18,11 @@ Item {
   readonly property alias compare: compare
   readonly property bool hasImage:!app.batchMode && app.imagePath !== ""
   readonly property bool hasResult: hasImage && app.upscaledImagePath !== ""
-  readonly property string beforeUrl: hasImage ? Core.fileUrl(app.imagePath) : ""
-  readonly property string afterUrl: hasResult ? Core.fileUrl(app.upscaledImagePath) + "?r=" + app.resultRevision : ""
+  // Only bin/omascayl-preview's copies are decoded here, never the files
+  // themselves (see App.imagePreview). Each copy has a new name, so a
+  // rewritten result is never served from Qt's cache.
+  readonly property string beforeUrl: hasImage && app.imagePreview ? Core.fileUrl(app.imagePreview) : ""
+  readonly property string afterUrl: hasResult && app.resultPreview ? Core.fileUrl(app.resultPreview) : ""
 
   clip: true
 
@@ -114,11 +117,9 @@ Item {
     afterSource: root.afterUrl
     mode: root.settings.viewMode
     zoom: root.settings.zoom / 100
-
-    onBeforeLoaded: function(w, h) {
-      root.app.inputWidth = w
-      root.app.inputHeight = h
-    }
+    afterFailed: root.hasResult && root.app.resultPreviewFailed
+    beforeSize: Qt.size(root.app.inputWidth, root.app.inputHeight)
+    afterSize: root.app.resultPreviewSize
   }
 
   // Top-right tools, like Upscayl's "more options" drawer.

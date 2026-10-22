@@ -35,13 +35,26 @@ Item {
 
   property string upscaledImagePath: ""
   property string upscaledBatchFolderPath: ""
-  property int resultRevision: 0       // bumps so the viewer reloads a rewritten file
   property var resultSize: null        // { width, height } the finished job aimed for
   property var sizing: null            // the scale options the running job used
 
   // Natural size of the selected image, reported by the viewer once loaded.
   property int inputWidth: 0
   property int inputHeight: 0
+
+  // What the window displays: copies made by bin/omascayl-preview, never the
+  // files themselves. This runs inside omarchy-shell, and an image from
+  // someone else can carry metadata that Qt's codecs inflate and keep in the
+  // shell's memory; the helper checks each file in its own process and copies
+  // only the image data (see its header).
+  property string imagePreview: ""
+  property string resultPreview: ""
+  property bool resultPreviewFailed: false
+  property size resultPreviewSize: Qt.size(0, 0)   // the result file's real size
+  property int previewRequest: 0       // later requests win over slower earlier ones
+  property int resultPreviewRequest: 0
+  property bool previewPending: false  // an image is being checked
+  property bool upscaylWhenReady: false // Upscayl was asked for meanwhile
 
   // ---- models ---------------------------------------------------------------
   property var installedModels: []     // names in settings.modelsPath
@@ -144,11 +157,71 @@ Item {
       showError("Invalid Image", "Please select/paste an image with a valid extension like PNG, JPG, JPEG, JFIF or WEBP.")
       return
     }
+    var previousOutput = outputPath
+    var previousFromClipboard = outputFromClipboard
     resetImage()
     setBatchMode(false)
     imagePath = path
     outputFromClipboard = !!fromClipboard
     outputPath = defaultOutputFor(fromClipboard ? settings.picturesDir : Core.dirName(path))
+    var chosenOutput = outputPath
+    // Shown (and upscayled) only once bin/omascayl-preview has checked it.
+    var request = ++previewRequest
+    previewPending = true
+    makePreview("before", path, function(code, preview, width, height, reason) {
+      if (request !== root.previewRequest) return
+      root.previewPending = false
+      var thenUpscayl = root.upscaylWhenReady
+      root.upscaylWhenReady = false
+      if (code !== 0) {
+        root.resetImage()
+        if (root.outputPath === chosenOutput) {   // unless the user picked one meanwhile
+          root.outputPath = previousOutput
+          root.outputFromClipboard = previousFromClipboard
+        }
+        root.showError("Invalid Image", reason)
+        return
+      }
+      root.inputWidth = width           // sizes first: they cap the decode
+      root.inputHeight = height
+      root.imagePreview = preview
+      if (thenUpscayl) Qt.callLater(root.upscayl)
+    })
+  }
+
+  // cb(code, previewPath, width, height, reason): code 0 on success.
+  function makePreview(slot, path, cb) {
+    if (!toolsDir) {
+      cb(127, "", 0, 0, "bin/omascayl-preview was not found, so the image can't be shown.")
+      return
+    }
+    runner.exec([toolsDir + "/omascayl-preview", slot, path, settings.cacheDir], function(code, out, err) {
+      var f = String(out || "").trim().split("\t")
+      if (code === 0 && f.length === 4 && Core.isAbsolutePath(f[0]))
+        cb(0, f[0], parseInt(f[1], 10) || 0, parseInt(f[2], 10) || 0, "")
+      else
+        cb(code || 1, "", 0, 0, String(err || "").trim()
+           || "Please select/paste an image with a valid extension like PNG, JPG, JPEG, JFIF or WEBP.")
+    })
+  }
+
+  // Every result, fresh or reused from disk, goes through the helper too: an
+  // existing file at the output path is as untrusted as the input.
+  onUpscaledImagePathChanged: {
+    var request = ++resultPreviewRequest
+    resultPreview = ""
+    resultPreviewFailed = false
+    if (!upscaledImagePath) return
+    var path = upscaledImagePath
+    makePreview("after", path, function(code, preview, width, height) {
+      if (request !== root.resultPreviewRequest) return
+      if (code !== 0) {
+        root.resultPreviewFailed = true
+        return
+      }
+      root.resultPreviewSize = Qt.size(width, height)
+      root.resultPreview = preview
+    })
   }
 
   function setBatchFolder(path) {
@@ -169,6 +242,10 @@ Item {
     upscaledBatchFolderPath = ""
     resultSize = null
     imagePath = ""
+    imagePreview = ""
+    previewRequest += 1                // drop a preview still on its way
+    previewPending = false
+    upscaylWhenReady = false
     batchFolderPath = ""
     inputWidth = 0
     inputHeight = 0
@@ -242,6 +319,10 @@ Item {
     if (upscaler.running) return
     if (!backendFound && toolsDir) {
       depsPromptOpen = true           // offer setup instead of failing
+      return
+    }
+    if (!batchMode && previewPending) {
+      upscaylWhenReady = true          // starts once the image is checked
       return
     }
     var input = batchMode ? batchFolderPath : imagePath
@@ -479,7 +560,6 @@ Item {
     function onFinished(mode, path, cached) {
       if (mode === "batch") root.upscaledBatchFolderPath = path
       else {
-        root.resultRevision += 1
         root.upscaledImagePath = path
         if (root.sizing) root.resultSize = Core.targetSize(root.inputWidth, root.inputHeight, root.sizing)
       }
