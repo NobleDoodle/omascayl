@@ -87,22 +87,25 @@ Rectangle {
     Item {
       id: body
       width: flick.width
-      implicitHeight: root.tab === "settings" ? settingsTab.implicitHeight : upscaylTab.implicitHeight
+      implicitHeight: page.item ? page.item.implicitHeight : 0
 
-      UpscaylTab {
-        id: upscaylTab
-        app: root.app
-        visible: root.tab === "upscayl"
+      // Only the open tab exists; a hidden one is destroyed rather than kept
+      // alive inside omarchy-shell. (All state lives in App and Settings.)
+      Loader {
+        id: page
         x: Style.spacing.panelPadding
         width: parent.width - 2 * Style.spacing.panelPadding
+        sourceComponent: root.tab === "settings" ? settingsPage : upscaylPage
       }
 
-      SettingsTab {
-        id: settingsTab
-        app: root.app
-        visible: root.tab === "settings"
-        x: Style.spacing.panelPadding
-        width: parent.width - 2 * Style.spacing.panelPadding
+      Component {
+        id: upscaylPage
+        UpscaylTab { app: root.app }
+      }
+
+      Component {
+        id: settingsPage
+        SettingsTab { app: root.app }
       }
     }
   }

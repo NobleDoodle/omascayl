@@ -45,6 +45,7 @@ ShellRoot {
   Loader {
     active: !!Quickshell.env("OMASCAYL_SNAPSHOT")
     sourceComponent: Item {
+      id: hook
       Timer {
         running: true
         interval: 600
@@ -54,11 +55,25 @@ ShellRoot {
           window.applySnapshotState(s)
         }
       }
+      // Every text item in the window (TextInput, TextEdit and their Controls
+      // subclasses have both readOnly and cursorPosition). An editable one
+      // would read the clipboard on each change inside the shell; tests
+      // require none.
+      function textInputs(item, out) {
+        if (!item) return out
+        if ("readOnly" in item && "cursorPosition" in item)
+          out.push({ type: String(item).replace(/\(.*$/, ""), readOnly: !!item.readOnly })
+        for (var i = 0; i < item.children.length; i++) textInputs(item.children[i], out)
+        return out
+      }
       Timer {
         running: true
         interval: parseInt(Quickshell.env("OMASCAYL_SNAPSHOT_DELAY") || "2500")
         onTriggered: {
+          var inputs = hook.textInputs(window.contentItem, [])
           report.setText(JSON.stringify({
+            textInputs: inputs,
+            editableTextInputs: inputs.filter(function(t) { return !t.readOnly }).length,
             running: app.upscaler.running,
             mode: app.upscaler.mode,
             batchDone: app.upscaler.batchDone,

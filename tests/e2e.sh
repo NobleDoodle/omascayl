@@ -186,6 +186,16 @@ check "and says so" '.toast | test("Everything Omascayl needs is installed")' de
 drun deps-upscayl 3000 "{\"image\":\"$E/rose.png\",\"noDepsPrompt\":true,\"run\":true}" "$deps_req" OMASCAYL_BIN=/nonexistent/upscayl-bin
 check "Upscayl without a backend offers setup instead of failing" '.depsPromptOpen == true and .error == null and .running == false' deps-upscayl
 
+# Marketplace report (#12026): an editable TextInput reads the whole clipboard
+# on every clipboard change inside omarchy-shell. The window must hold none,
+# on either tab; a hidden tab must not exist at all.
+run census-upscayl 1500 '{"settings":{"useCustomWidth":true}}'
+check "no editable text input with the Upscayl tab open (hidden Settings tab not built)" \
+  '.editableTextInputs == 0 and (.textInputs | length) == 1' census-upscayl
+run census-settings 1500 '{"tab":"settings","settings":{"useCustomWidth":true}}'
+check "none with the Settings tab open, both number fields shown" \
+  '.editableTextInputs == 0 and (.textInputs | length) == 2' census-settings
+
 # Marketplace report (#12026): a 1x1 PNG whose compressed text chunks Qt
 # and libpng would inflate and keep inside the shell (20 chunks of ~7.9 MB).
 # The window shows bin/omascayl-preview's copy instead, as input and as an

@@ -89,7 +89,7 @@ Column {
 
   Section {
     title: "CUSTOM TILE SIZE"
-    NumberField {
+    NumberStepper {
       from: 0
       to: 2048
       stepSize: 32
@@ -115,7 +115,7 @@ Column {
         root.settings.update(patch)
       }
     }
-    NumberField {
+    NumberStepper {
       visible: root.settings.useCustomWidth
       label: "Width (px)"
       from: 1

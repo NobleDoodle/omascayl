@@ -146,8 +146,9 @@ Omascayl runs inside `omarchy-shell`, and part of it runs on every shell start w
 - **The setup asks first, and its package list is fixed.** `bin/omascayl-setup` runs in a terminal and installs only after you answer "Proceed? [Y/n]". The only names it ever passes to `sudo pacman` come from a fixed list in the script, after `--`. The engine and models are pinned by SHA-256. `bin/omascayl-store` checks them again on the bytes it copies into place, so a file changed after the check can't get in.
 - **Text shown is plain text.** File names, error output and clipboard contents are never rendered as rich text.
 - **Images are never decoded from the file you pick.** An image from someone else can carry metadata that Qt's codecs inflate and keep in memory: a 150 KB PNG of compressed text chunks costs the shell over 1.6 GB. So `bin/omascayl-preview` checks each image in its own process, taking its type from the bytes, not the name. It writes a copy into `~/.cache/omascayl/preview` that holds only the picture data, without text, color-profile, EXIF or animation chunks, and the window displays only that copy. It does this for the selected image and for results, including an existing result that is reused.
+- **No text field watches the clipboard.** An editable Qt text field reads the clipboard's whole text every time the clipboard changes, even if you never paste. Inside the shell, a program that owns the clipboard could stall or flood it that way. So Omascayl has no editable text field: its number settings use its own control, which shows the value as plain text and takes digits and arrow keys directly. Only the open tab exists, too. Paste and copy run in separate processes (`wl-paste`, `wl-copy`).
 
-Each of these has a test that plants the symlink, FIFO, package name or image in question (`tests/integrate.sh`, `tests/setup.sh`, `tests/picker.sh`, `tests/preview.sh`).
+Each of these has a test that plants the symlink, FIFO, package name or image in question (`tests/integrate.sh`, `tests/setup.sh`, `tests/picker.sh`, `tests/preview.sh`). `tests/e2e.sh` counts the text fields in the window, which must all be read-only.
 
 ## Tests
 
@@ -159,6 +160,7 @@ tests/picker.sh        # bin/omascayl-pick against a mock portal on a sealed pri
 tests/integrate.sh     # the plugin's launcher entry, icon and command, in a scratch HOME
 tests/setup.sh         # bin/omascayl-setup with a fake sudo and a local mirror; nothing real is installed
 tests/preview.sh       # bin/omascayl-preview on real PNG/JPEG/WebP variants and crafted files (needs ImageMagick)
+tests/stepper.sh       # the number control: keys, limits, and no text input inside
 ```
 
 ## License
